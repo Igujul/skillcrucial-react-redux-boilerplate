@@ -4,9 +4,31 @@ import path from 'path'
 import cors from 'cors'
 import bodyParser from 'body-parser'
 import sockjs from 'sockjs'
-
+import axios from 'axios'
 import cookieParser from 'cookie-parser'
 import Html from '../client/html'
+
+const { readFile, writeFile, unlink } = require('fs').promises
+
+const setHeaders = (req, res, next) => {
+  res.set('x-skillcrucial-user', 'cf1c6df8-2d30-4f31-83ad-24877d2d8516')
+  res.set('Access-Control-Expose-Headers', 'X-SKILLCRUCIAL-USER')
+  return next()
+}
+
+const saveFile = async (users) => {
+  return writeFile(`${__dirname}/test.json`, JSON.stringify(users), { encoding: 'utf8' })
+}
+
+const fileRead = async () => {
+  return readFile(`${__dirname}/test.json`, { encoding: 'utf8' })
+    .then((data) => JSON.parse(data))
+    .catch(async () => {
+      const { data: users } = await axios('https://jsonplaceholder.typicode.com/users')
+      await saveFile(users)
+      return users
+    })
+}
 
 let connections = []
 
@@ -20,6 +42,42 @@ server.use(bodyParser.urlencoded({ limit: '50mb', extended: true, parameterLimit
 server.use(bodyParser.json({ limit: '50mb', extended: true }))
 
 server.use(cookieParser())
+server.use(setHeaders)
+
+server.get('/api/v1/users', async (req, res) => {
+  const users = await fileRead()
+  res.json(users)
+})
+
+server.post('/api/v1/users', async (req, res) => {
+  const users = await fileRead()
+  const newUserBody = req.body
+  const userLength = users[users.length - 1].id
+  newUserBody.id = userLength + 1
+  const newUser = [...users, newUserBody]
+  saveFile(newUser)
+  res.json({ status: 'success', id: newUserBody.id })
+})
+server.delete('/api/v1/users/', async (req, res) => {
+  await unlink(`${__dirname}/test.json`)
+  res.json()
+})
+
+server.patch('/api/v1/users/:userId', async (req, res) => {
+  const users = await fileRead()
+  const newUserBody = req.body
+  const { userId } = req.params
+  const newUserArray = users.map((it) => (it.id === +userId ? Object.assign(it, newUserBody) : it))
+  saveFile(newUserArray)
+  res.json({ status: 'success', id: newUserBody.id })
+})
+server.delete('/api/v1/users/:userId', async (req, res) => {
+  const users = await fileRead()
+  const { userId } = req.params
+  users.splice(userId - 1, 1)
+  saveFile(users)
+  res.json({ status: 'success', id: userId })
+})
 
 server.use('/api/', (req, res) => {
   res.status(404)
